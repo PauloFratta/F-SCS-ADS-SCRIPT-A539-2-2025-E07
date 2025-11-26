@@ -81,11 +81,23 @@ $active_track_data = $tracks[$active_track_key];
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['selected_track'])) {
     $new_track = filter_var($_POST['selected_track'], FILTER_SANITIZE_STRING);
     
-    // Verifica se a trilha existe antes de salvar
     if (isset($tracks[$new_track])) {
         $_SESSION['user_track'] = $new_track;
+        
+        // NOVO: Persistir a trilha ativa no banco de dados
+        include 'db.php';
+        $user_id = $_SESSION['user_id'];
+        
+        // Assumimos que você tem um campo 'trilha_ativa' na tabela 'dependentes'
+        $sql_update = "UPDATE dependentes SET trilha_ativa = ? WHERE id = ?"; 
+        $stmt_update = $conn->prepare($sql_update);
+        $stmt_update->bind_param("si", $new_track, $user_id);
+        $stmt_update->execute();
+        $stmt_update->close();
+        $conn->close();
+        
         // Redireciona para evitar reenvio do formulário e recarrega a página com a trilha nova.
-        header("Location: courses.php");
+        header("Location: trilhas.php");
         exit;
     }
 }

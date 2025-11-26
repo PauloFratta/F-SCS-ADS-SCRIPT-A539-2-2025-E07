@@ -10,12 +10,15 @@ if (!isset($_SESSION['user_id'])) {
 }
 
 // 2. Conecta ao banco de dados e busca o progresso
-include 'db.php';
+include 'db.php'; // Chama a conexão
 
 $user_id = $_SESSION['user_id'];
-$course_slug = 'criador-de-jogos'; // Exemplo: Trilha de jogos
+$course_slug = 'criador-de-jogos'; // Exemplo - Isso deve ser dinâmico!
+// Sugestão: Você pode armazenar a trilha ativa na SESSION ou buscá-la do BD
+// Ex: $course_slug = $_SESSION['active_track_slug'] ?? 'iniciante'; 
 
 $progresso = [];
+// Altere 'progresso' para o nome correto da sua tabela de progresso
 $sql = "SELECT modulo_id, status FROM progresso WHERE usuario_id = ? AND curso_slug = ?";
 $stmt = $conn->prepare($sql);
 $stmt->bind_param("is", $user_id, $course_slug);

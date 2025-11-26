@@ -1,9 +1,10 @@
 <?php
 // db.php
-$servername = "localhost"; // Geralmente 'localhost' para desenvolvimento local
-$username = "seu_usuario"; // Mude para o seu usuário do banco de dados
-$password = "sua_senha_secreta"; // Mude para sua senha
-$dbname = "beancode_db"; // Mude para o nome do seu banco de dados
+// ATENÇÃO: Mantenha estas credenciais fora do controle de versão (como o Git) em um projeto real.
+$servername = "localhost"; // Geralmente 'localhost' para XAMPP
+$username = "root"; // O usuário padrão do MySQL no XAMPP é 'root'
+$password = ""; // A senha padrão é vazia no XAMPP (deixe aspas vazias)
+$dbname = "beancode_db"; // O nome do seu banco de dados
 
 // Cria a conexão
 $conn = new mysqli($servername, $username, $password, $dbname);

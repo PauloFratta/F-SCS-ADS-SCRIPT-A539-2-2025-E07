@@ -644,7 +644,7 @@ $is_logged_in = false; // Simulação de estado de login
         </button>
       </div>
 
-      <form action="process_login.php" method="POST" class="space-y-4">
+      <form action="process_register.php" method="POST" class="space-y-4">
         <div>
           <label for="login-email" class="block text-sm font-medium text-foreground mb-1">E-mail</label>
           <input type="email" id="login-email" name="email" required class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-primary">
