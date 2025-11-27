@@ -1,72 +1,54 @@
 <?php
-// login.php (Versão com PHP para processar o formulário)
+// login.php (CÓDIGO CORRIGIDO E ATUALIZADO)
 
-// Inclui o arquivo de conexão com o banco de dados
+// Inicia a sessão se ainda não estiver iniciada
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
 include 'db.php'; 
 
-// Inicializa a variável de erro
 $error_message = '';
-$success_message = '';
+$success_message = isset($_GET['status']) && $_GET['status'] == 'registered' ? 'Cadastro concluído com sucesso! Faça login abaixo. 🎉' : '';
 
-// Verifica se o formulário foi submetido (POST)
-if ($_SERVER["REQUEST_METHOD"] == "POST") {
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['login_submit'])) {
     
-    // Processamento de Login
-    if (isset($_POST['login_submit'])) {
-        $email = $conn->real_escape_string($_POST['email']);
-        $password = $_POST['password'];
+    $email = $conn->real_escape_string($_POST['email']);
+    $password = $_POST['password'];
 
-        $sql = "SELECT id, senha_hash, nome_crianca FROM usuarios WHERE email = ?";
-        $stmt = $conn->prepare($sql);
-        $stmt->bind_param("s", $email);
-        $stmt->execute();
-        $result = $stmt->get_result();
+    // 1. Tentar login como RESPONSÁVEL (usando a tabela 'responsaveis')
+    // Colunas usadas: id, senha_hash, nome_completo
+    $sql = "SELECT id, senha, nome_completo FROM responsaveis WHERE email = ?";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("s", $email);
+    $stmt->execute();
+    $result = $stmt->get_result();
 
-        if ($result->num_rows === 1) {
-            $user = $result->fetch_assoc();
+    if ($result->num_rows === 1) {
+        $user = $result->fetch_assoc();
+        
+        if (password_verify($password, $user['senha_hash'])) {
+            // Login de RESPONSÁVEL bem-sucedido!
+            $_SESSION['user_id'] = $user['id'];
+            $_SESSION['user_type'] = 'responsible'; // Novo campo para diferenciar
+            $_SESSION['nome_responsavel'] = $user['nome_completo'];
             
-            // Verifica a senha
-            if (password_verify($password, $user['senha_hash'])) {
-                // Login bem-sucedido!
-                session_start();
-                $_SESSION['user_id'] = $user['id'];
-                $_SESSION['nome_crianca'] = $user['nome_crianca'];
-                
-                // Redireciona para a trilha de cursos
-                header("Location: course-track.php");
-                exit();
-            } else {
-                $error_message = "Email ou senha mágica incorretos. 🧙‍♂️";
-            }
+            // Redireciona para o Painel do Responsável
+            header("Location: dashboard_responsavel.php");
+            exit();
         } else {
             $error_message = "Email ou senha mágica incorretos. 🧙‍♂️";
         }
-        $stmt->close();
+    } else {
+        // Se não for responsável, poderia ser um ALUNO (usando nome_user)
+        // Se a sua tela de login é somente para responsáveis (usando email), este é o comportamento ideal.
+        $error_message = "Email ou senha mágica incorretos. 🧙‍♂️";
     }
-    
-    // Processamento de Cadastro (Exemplo simplificado)
-    // Você precisaria de um formulário de cadastro separado, mas o processamento seria assim:
-    /*
-    if (isset($_POST['register_submit'])) {
-        $email = $conn->real_escape_string($_POST['reg_email']);
-        $password = password_hash($_POST['reg_password'], PASSWORD_DEFAULT);
-        $nome_crianca = $conn->real_escape_string($_POST['reg_nome']);
-
-        $sql = "INSERT INTO usuarios (email, senha_hash, nome_crianca) VALUES (?, ?, ?)";
-        $stmt = $conn->prepare($sql);
-        $stmt->bind_param("sss", $email, $password, $nome_crianca);
-
-        if ($stmt->execute()) {
-            $success_message = "Cadastro feito com sucesso! Faça login agora. 🎉";
-        } else {
-            $error_message = "Erro ao cadastrar. Tente outro Email Mágico.";
-        }
-        $stmt->close();
-    }
-    */
+    $stmt->close();
 }
 
 $conn->close();
+
+// ... O restante do HTML permanece o mesmo ...
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
