@@ -1,3 +1,92 @@
+<?php
+// ==========================================================
+// LÓGICA DE LOGIN E AUTENTICAÇÃO
+// ==========================================================
+
+// Inicia output buffering para prevenir headers already sent
+ob_start();
+
+session_start();
+include 'db.php';
+
+$is_logged_in = false;
+$error_message = isset($_GET['error']) ? $_GET['error'] : '';
+$success_message = isset($_GET['success']) ? $_GET['success'] : '';
+
+// PROCESSAR LOGIN
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['login_submit'])) {
+    $identifier = $conn->real_escape_string($_POST['email']); // Pode ser email ou nome_user
+    $password = $_POST['password'];
+
+    $login_successful = false;
+
+    // Tentar login como RESPONSÁVEL (usa email)
+    if (filter_var($identifier, FILTER_VALIDATE_EMAIL)) {
+        $sql = "SELECT id, senha, nome_completo FROM responsaveis WHERE email = ?";
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param("s", $identifier);
+        $stmt->execute();
+        $result = $stmt->get_result();
+
+        if ($result->num_rows === 1) {
+            $user = $result->fetch_assoc();
+            
+            if (password_verify($password, $user['senha'])) {
+                $_SESSION['user_id'] = $user['id'];
+                $_SESSION['user_type'] = 'responsible';
+                $_SESSION['nome_responsavel'] = $user['nome_completo'];
+                $login_successful = true;
+                
+                $stmt->close();
+                close_db_connection();
+                
+                header("Location: dashboard_responsavel.php");
+                exit();
+            }
+        }
+        $stmt->close();
+    }
+    
+    // Se não logou como responsável, tentar como ALUNO (usa nome_user)
+    if (!$login_successful) {
+        $sql = "SELECT id, senha, nome_user, trilha_ativa, responsavel_id FROM alunos WHERE nome_user = ?";
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param("s", $identifier);
+        $stmt->execute();
+        $result = $stmt->get_result();
+
+        if ($result->num_rows === 1) {
+            $user = $result->fetch_assoc();
+            
+            if (password_verify($password, $user['senha'])) {
+                $_SESSION['user_id'] = $user['id'];
+                $_SESSION['user_type'] = 'student';
+                $_SESSION['nome_aluno'] = $user['nome_user'];
+                $_SESSION['trilha_ativa'] = $user['trilha_ativa'];
+                $_SESSION['responsavel_id'] = $user['responsavel_id'];
+                $login_successful = true;
+                
+                $stmt->close();
+                close_db_connection();
+                
+                // Redireciona para a trilha ativa do aluno
+                header("Location: trilhas.php");
+                exit();
+            }
+        }
+        $stmt->close();
+    }
+    
+    if (!$login_successful) {
+        $error_message = "Usuário ou senha incorretos.";
+    }
+}
+
+close_db_connection();
+
+// Limpa o buffer e inicia a saída HTML
+ob_end_clean();
+?>
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -98,15 +187,63 @@
   </style>
 </head>
 <body class="min-h-screen">
-<?php
-// ==========================================================
-// TRECHO DE CÓDIGO PHP PARA CONEXÃO BÁSICA COM O BANCO DE DADOS
-// Mantenha esta lógica de back-end fora do escopo de front-end se possível.
-// ==========================================================
 
-$is_logged_in = false; // Simulação de estado de login
+  <?php if ($error_message): ?>
+    <div class="fixed top-4 right-4 z-50 bg-red-100 border border-red-400 text-red-700 px-6 py-4 rounded-lg shadow-lg max-w-md" role="alert">
+      <div class="flex items-start gap-3">
+        <svg class="h-5 w-5 text-red-500 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+        </svg>
+        <div class="flex-1">
+          <p class="font-semibold">Erro</p>
+          <p class="text-sm"><?php echo htmlspecialchars($error_message); ?></p>
+        </div>
+        <button onclick="this.parentElement.parentElement.remove()" class="text-red-500 hover:text-red-700">
+          <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  <?php endif; ?>
 
-?>
+  <?php if ($success_message): ?>
+    <div class="fixed top-4 right-4 z-50 bg-green-100 border border-green-400 text-green-700 px-6 py-4 rounded-lg shadow-lg max-w-md" role="alert">
+      <div class="flex items-start gap-3">
+        <svg class="h-5 w-5 text-green-500 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+        </svg>
+        <div class="flex-1">
+          <p class="font-semibold">Sucesso!</p>
+          <p class="text-sm"><?php echo htmlspecialchars($success_message); ?></p>
+        </div>
+        <button onclick="this.parentElement.parentElement.remove()" class="text-green-500 hover:text-green-700">
+          <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  <?php endif; ?>
+
+  <?php if ($error_message): ?>
+    <div class="fixed top-4 right-4 z-50 bg-red-100 border border-red-400 text-red-700 px-6 py-4 rounded-lg shadow-lg max-w-md" role="alert">
+      <div class="flex items-start gap-3">
+        <svg class="h-5 w-5 text-red-500 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+        </svg>
+        <div class="flex-1">
+          <p class="font-semibold">Erro no cadastro</p>
+          <p class="text-sm"><?php echo htmlspecialchars($error_message); ?></p>
+        </div>
+        <button onclick="this.parentElement.parentElement.remove()" class="text-red-500 hover:text-red-700">
+          <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  <?php endif; ?>
    
   <header class="sticky top-0 z-50 w-full border-b backdrop-blur bg-white/95 border-border">
     <div class="container mx-auto flex h-16 items-center justify-between px-4">
@@ -625,8 +762,8 @@ $is_logged_in = false; // Simulação de estado de login
           Feito com 
           <svg class="h-4 w-4 text-red-500 fill-red-500" viewBox="0 0 24 24">
             <path d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/>
-          </svg>
-          para jovens programadores
+      <form action="index.php" method="POST" class="space-y-4">
+        <input type="hidden" name="login_submit" value="1">
         </div>
       </div>
     </div>
@@ -644,10 +781,11 @@ $is_logged_in = false; // Simulação de estado de login
         </button>
       </div>
 
-      <form action="process_register.php" method="POST" class="space-y-4">
+      <form action="index.php" method="POST" class="space-y-4">
+        <input type="hidden" name="login_submit" value="1">
         <div>
-          <label for="login-email" class="block text-sm font-medium text-foreground mb-1">E-mail</label>
-          <input type="email" id="login-email" name="email" required class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-primary">
+          <label for="login-email" class="block text-sm font-medium text-foreground mb-1">E-mail ou Nome de Usuário</label>
+          <input type="text" id="login-email" name="email" required placeholder="Email (responsável) ou nome de usuário (aluno)" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-primary">
         </div>
         <div>
           <label for="login-password" class="block text-sm font-medium text-foreground mb-1">Senha</label>

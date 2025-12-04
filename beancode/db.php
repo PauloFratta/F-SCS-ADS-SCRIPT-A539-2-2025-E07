@@ -1,20 +1,34 @@
 <?php
-// db.php
+// db.php - Configuração centralizada do banco de dados
 // ATENÇÃO: Mantenha estas credenciais fora do controle de versão (como o Git) em um projeto real.
-$servername = "localhost"; // Geralmente 'localhost' para XAMPP
-$username = "root"; // O usuário padrão do MySQL no XAMPP é 'root'
-$password = ""; // A senha padrão é vazia no XAMPP (deixe aspas vazias)
-$dbname = "beancode_db"; // O nome do seu banco de dados
+
+// Ativa erros para debug (desative em produção)
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
+
+// Configurações do banco
+define('DB_HOST', 'sql100.infinityfree.com');
+define('DB_USER', 'if0_40593316');
+define('DB_PASS', 'hEF5guZ3oop6ty2');
+define('DB_NAME', 'if0_40593316_db_beancode');
 
 // Cria a conexão
-$conn = new mysqli($servername, $username, $password, $dbname);
+$conn = new mysqli(DB_HOST, DB_USER, DB_PASS, DB_NAME);
 
 // Checa a conexão
 if ($conn->connect_error) {
-    // Para um ambiente de produção, registre o erro e mostre uma mensagem amigável
-    die("Falha na conexão mágica: " . $conn->connect_error);
+    error_log("Falha na conexão mágica: " . $conn->connect_error);
+    die("Falha na conexão com o banco de dados. Por favor, tente novamente mais tarde.");
 }
 
-// Opcional: Define o charset para evitar problemas de acentuação
+// Define o charset para evitar problemas de acentuação
 $conn->set_charset("utf8mb4");
+
+// Função auxiliar para fechar conexão de forma segura
+function close_db_connection() {
+    global $conn;
+    if (isset($conn) && $conn instanceof mysqli) {
+        $conn->close();
+    }
+}
 ?>

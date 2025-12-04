@@ -4,7 +4,7 @@ include 'db.php';
 
 // Redireciona se o usuário não for um responsável logado
 if (!isset($_SESSION['user_id']) || $_SESSION['user_type'] !== 'responsible') {
-    header("Location: login.php");
+    header("Location: index.php");
     exit();
 }
 
@@ -25,14 +25,42 @@ while ($row = $result_alu->fetch_assoc()) {
 }
 $stmt_alu->close();
 
-// 2. Lógica para buscar as últimas notificações/conquistas (SIMULAÇÃO)
-// Em um sistema real, você faria um JOIN complexo com a tabela 'aluno_conquistas'
-$notifications = [
-    ['child_name' => 'Joãozinho', 'message' => 'Desbloqueou o emblema "Mago do Loop" na trilha Iniciante!', 'time' => '10 minutos atrás'],
-    ['child_name' => 'Mariazinha', 'message' => 'Concluiu o Módulo 1 da trilha Criador de Jogos.', 'time' => 'Ontem'],
-];
+// 2. Buscar notificações reais do banco de dados
+$notifications = [];
+$sql_notif = "SELECT n.id, n.mensagem, n.data_criacao, n.lida, a.nome_user 
+              FROM notificacoes n 
+              INNER JOIN alunos a ON n.aluno_id = a.id 
+              WHERE n.responsavel_id = ? 
+              ORDER BY n.data_criacao DESC 
+              LIMIT 10";
+$stmt_notif = $conn->prepare($sql_notif);
+$stmt_notif->bind_param("i", $responsible_id);
+$stmt_notif->execute();
+$result_notif = $stmt_notif->get_result();
 
-$conn->close();
+while ($row = $result_notif->fetch_assoc()) {
+    $time_diff = time() - strtotime($row['data_criacao']);
+    if ($time_diff < 60) {
+        $time_text = 'Agora mesmo';
+    } elseif ($time_diff < 3600) {
+        $time_text = floor($time_diff / 60) . ' minuto(s) atrás';
+    } elseif ($time_diff < 86400) {
+        $time_text = floor($time_diff / 3600) . ' hora(s) atrás';
+    } else {
+        $time_text = floor($time_diff / 86400) . ' dia(s) atrás';
+    }
+    
+    $notifications[] = [
+        'id' => $row['id'],
+        'child_name' => $row['nome_user'],
+        'message' => $row['mensagem'],
+        'time' => $time_text,
+        'lida' => $row['lida']
+    ];
+}
+$stmt_notif->close();
+
+close_db_connection();
 ?>
 
 <!DOCTYPE html>
@@ -77,14 +105,29 @@ $conn->close();
         <div class="lg:col-span-1 bg-card p-6 rounded-xl shadow-lg border border-border h-fit">
           <h2 class="text-2xl font-bold text-primary mb-4 flex items-center gap-2">
             <span class="text-3xl">🔔</span> Últimas Conquistas
+            <?php 
+            $nao_lidas = array_filter($notifications, fn($n) => !$n['lida']);
+            if (count($nao_lidas) > 0): 
+            ?>
+            <span class="bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full"><?php echo count($nao_lidas); ?></span>
+            <?php endif; ?>
           </h2>
           <div class="space-y-4">
             <?php if (!empty($notifications)): ?>
                 <?php foreach ($notifications as $n): ?>
-                    <div class="bg-purple-50 p-3 rounded-lg border-l-4 border-primary">
-                        <p class="text-sm font-semibold text-foreground"><?php echo htmlspecialchars($n['child_name']); ?>:</p>
-                        <p class="text-sm text-gray-700"><?php echo htmlspecialchars($n['message']); ?></p>
-                        <p class="text-xs text-muted-foreground mt-1"><?php echo htmlspecialchars($n['time']); ?></p>
+                    <div class="<?php echo !$n['lida'] ? 'bg-purple-100 border-purple-400' : 'bg-gray-50 border-gray-300'; ?> p-3 rounded-lg border-l-4 transition-all">
+                        <div class="flex items-start justify-between">
+                            <div class="flex-grow">
+                                <p class="text-sm font-semibold text-foreground flex items-center gap-2">
+                                    <?php echo htmlspecialchars($n['child_name']); ?>
+                                    <?php if (!$n['lida']): ?>
+                                        <span class="bg-red-500 w-2 h-2 rounded-full"></span>
+                                    <?php endif; ?>
+                                </p>
+                                <p class="text-sm text-gray-700"><?php echo htmlspecialchars($n['message']); ?></p>
+                                <p class="text-xs text-gray-500 mt-1"><?php echo htmlspecialchars($n['time']); ?></p>
+                            </div>
+                        </div>
                     </div>
                 <?php endforeach; ?>
             <?php else: ?>

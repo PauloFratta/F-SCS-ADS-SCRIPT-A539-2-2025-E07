@@ -1,6 +1,13 @@
 <?php
 session_start();
-$user_name = "Alex"; // Simulação de dependente logado
+
+// Verifica se o usuário está logado
+if (!isset($_SESSION['user_id'])) {
+    header("Location: index.php");
+    exit();
+}
+
+$user_name = $_SESSION['nome_responsavel'] ?? $_SESSION['nome_aluno'] ?? "Aluno";
 $track_title = "Mago da Web";
 $track_emoji = "🧙‍♂️";
 $track_color = "text-accent";
@@ -45,7 +52,7 @@ $track_bg = "bg-teal-100";
       </div>
 
       <nav class="flex items-center space-x-4">
-        <a href="courses.php" class="px-4 py-2 text-sm font-medium rounded-lg hover:bg-gray-100 transition-colors">Voltar para Trilhas</a>
+        <a href="trilhas.php" class="px-4 py-2 text-sm font-medium rounded-lg hover:bg-gray-100 transition-colors">Voltar para Trilhas</a>
         <a href="logout.php" class="px-4 py-2 text-sm font-medium rounded-lg bg-secondary text-white hover:opacity-90 transition-opacity">Sair</a>
       </nav>
     </div>

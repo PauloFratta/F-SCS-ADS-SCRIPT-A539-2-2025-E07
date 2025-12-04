@@ -1,106 +1,153 @@
 <?php
 // Inicia a sessão para manter o estado do usuário e da trilha
 session_start();
+include 'db.php';
+
+// Verifica se o usuário está logado como aluno
+if (!isset($_SESSION['user_id']) || $_SESSION['user_type'] !== 'student') {
+    header("Location: index.php?error=Você precisa estar logado como aluno");
+    exit();
+}
 
 // ==========================================================
-// LÓGICA PHP DE SIMULAÇÃO E ESTRUTURA DE DADOS
+// LÓGICA PHP DE AUTENTICAÇÃO E ESTRUTURA DE DADOS
 // ==========================================================
 
-// Variáveis de simulação:
-$user_name = "Alex"; // Nome do dependente logado
-$user_track = isset($_SESSION['user_track']) ? $_SESSION['user_track'] : null;
+// Busca informações do aluno no banco de dados
+$aluno_id = $_SESSION['user_id'];
+$sql = "SELECT nome_user, trilha_ativa FROM alunos WHERE id = ?";
+$stmt = $conn->prepare($sql);
+$stmt->bind_param("i", $aluno_id);
+$stmt->execute();
+$result = $stmt->get_result();
 
-// Estrutura de dados das trilhas com Módulos e Lições
-$tracks = [
-    'iniciante' => [
-        'title' => 'Primeiros Passos',
-        'subtitle' => 'Lógica com Blocos Coloridos',
-        'emoji' => '🌟',
-        'level' => 'Iniciante',
-        'bg' => 'bg-purple-100',
-        'border' => 'border-purple-200',
-        'color' => 'text-primary',
-        'modules' => [
-            [
-                'title' => 'Módulo Básico 1: Descobrindo os Blocos Mágicos',
-                'lessons' => [
-                    ['title' => 'Lição 1.1: O Bloco "Mover" e a Coordenada X', 'status' => 'Concluído'],
-                    ['title' => 'Lição 1.2: Bloco "Repetir": Criando Loops Simples', 'status' => 'Pendente']
-                ]
-            ]
-        ]
-    ],
-    'intermediario' => [
-        'title' => 'Criador de Jogos',
-        'subtitle' => 'Desenvolvimento de Games Simples',
-        'emoji' => '🎮',
-        'level' => 'Intermediário',
-        'bg' => 'bg-orange-100',
-        'border' => 'border-orange-200',
-        'color' => 'text-secondary',
-        'modules' => [
-            [
-                'title' => 'Módulo Básico 1: Fundamentos de Movimento e Colisão',
-                'lessons' => [
-                    ['title' => 'Lição 1.1: Introdução ao Loop de Jogo (Game Loop)', 'status' => 'Concluído'],
-                    ['title' => 'Lição 1.2: Detectando Colisões Simples', 'status' => 'Pendente']
-                ]
-            ]
-        ]
-    ],
-    'avancado' => [
-        'title' => 'Mago da Web',
-        'subtitle' => 'Criação de Sites e Apps',
-        'emoji' => '🧙‍♂️',
-        'level' => 'Avançado',
-        'bg' => 'bg-teal-100',
-        'border' => 'border-teal-200',
-        'color' => 'text-accent',
-        'modules' => [
-            [
-                'title' => 'Módulo Básico 1: Criando Sua Primeira Página (HTML e CSS)',
-                'lessons' => [
-                    ['title' => 'Lição 1.1: Estrutura Básica do HTML5', 'status' => 'Concluído'],
-                    ['title' => 'Lição 1.2: Estilizando com Classes e IDs (CSS)', 'status' => 'Pendente']
-                ]
-            ]
-        ]
-    ]
-];
+if ($result->num_rows === 1) {
+    $aluno = $result->fetch_assoc();
+    $user_name = $aluno['nome_user'];
+    $user_track = $aluno['trilha_ativa']; // Pode ser NULL no primeiro login
+} else {
+    $stmt->close();
+    close_db_connection();
+    header("Location: index.php?error=Aluno não encontrado");
+    exit();
+}
+$stmt->close();
+
+// ==========================================================
+// BUSCA DINÂMICA DE TRILHAS E PROGRESSO DO BANCO
+// ==========================================================
+
+// Busca todos os caminhos (trilhas) e seus cursos
+$sql_trilhas = "SELECT cam.id, cam.nome, cam.descricao, 
+                c.id as curso_id, c.nome_curso,
+                LOWER(CASE 
+                    WHEN c.nome_curso LIKE '%Iniciante%' THEN 'iniciante'
+                    WHEN c.nome_curso LIKE '%Intermediário%' THEN 'intermediario'
+                    WHEN c.nome_curso LIKE '%Avançado%' THEN 'avancado'
+                    ELSE 'iniciante'
+                END) as slug
+                FROM caminhos cam
+                LEFT JOIN cursos c ON c.caminho_id = cam.id
+                ORDER BY cam.id";
+$result_trilhas = $conn->query($sql_trilhas);
+
+$tracks = [];
+while ($trilha = $result_trilhas->fetch_assoc()) {
+    $slug = $trilha['slug'];
+    
+    // Define cores e estilos por trilha
+    $styles = [
+        'iniciante' => ['emoji' => '🌟', 'level' => 'Iniciante', 'bg' => 'bg-purple-100', 'border' => 'border-purple-200', 'color' => 'text-primary'],
+        'intermediario' => ['emoji' => '🎮', 'level' => 'Intermediário', 'bg' => 'bg-orange-100', 'border' => 'border-orange-200', 'color' => 'text-secondary'],
+        'avancado' => ['emoji' => '🧙‍♂️', 'level' => 'Avançado', 'bg' => 'bg-teal-100', 'border' => 'border-teal-200',
+        'color' => 'text-teal-600']
+    ];
+    
+    $style = $styles[$slug] ?? $styles['iniciante'];
+    
+    // Busca módulos e lições desta trilha
+    $modules = [];
+    if ($trilha['curso_id']) {
+        $sql_modulos = "SELECT m.id, m.nome, m.descricao, m.ordem,
+                        (SELECT COUNT(*) FROM licoes WHERE modulo_id = m.id) as total_licoes,
+                        (SELECT COUNT(*) FROM licoes l 
+                         INNER JOIN progresso_licoes pl ON l.id = pl.licao_id 
+                         WHERE l.modulo_id = m.id AND pl.aluno_id = ? AND pl.concluida = 1) as licoes_concluidas
+                        FROM modulos m
+                        WHERE m.curso_id = ?
+                        ORDER BY m.ordem
+                        LIMIT 3";
+        $stmt_mod = $conn->prepare($sql_modulos);
+        $stmt_mod->bind_param("ii", $aluno_id, $trilha['curso_id']);
+        $stmt_mod->execute();
+        $result_mod = $stmt_mod->get_result();
+        
+        while ($modulo = $result_mod->fetch_assoc()) {
+            // Busca lições do módulo
+            $sql_licoes = "SELECT l.id, l.titulo, 
+                           COALESCE(pl.concluida, 0) as concluida
+                           FROM licoes l
+                           LEFT JOIN progresso_licoes pl ON l.id = pl.licao_id AND pl.aluno_id = ?
+                           WHERE l.modulo_id = ?
+                           ORDER BY l.ordem
+                           LIMIT 3";
+            $stmt_lic = $conn->prepare($sql_licoes);
+            $stmt_lic->bind_param("ii", $aluno_id, $modulo['id']);
+            $stmt_lic->execute();
+            $result_lic = $stmt_lic->get_result();
+            
+            $lessons = [];
+            while ($licao = $result_lic->fetch_assoc()) {
+                $lessons[] = [
+                    'id' => $licao['id'],
+                    'title' => $licao['titulo'],
+                    'status' => $licao['concluida'] ? 'Concluído' : 'Pendente'
+                ];
+            }
+            $stmt_lic->close();
+            
+            $modules[] = [
+                'title' => $modulo['nome'],
+                'lessons' => $lessons,
+                'progress' => $modulo['total_licoes'] > 0 ? 
+                    round(($modulo['licoes_concluidas'] / $modulo['total_licoes']) * 100) : 0
+            ];
+        }
+        $stmt_mod->close();
+    }
+    
+    $tracks[$slug] = [
+        'title' => $trilha['nome'],
+        'subtitle' => $trilha['descricao'],
+        'emoji' => $style['emoji'],
+        'level' => $style['level'],
+        'bg' => $style['bg'],
+        'border' => $style['border'],
+        'color' => $style['color'],
+        'modules' => $modules
+    ];
+}
+
+close_db_connection();
 
 // Lógica para determinar a trilha ativa e se o modal deve abrir:
+// Se trilha_ativa é NULL ou vazio, é o primeiro login
 $has_selected_track = !empty($user_track);
 $active_track_key = $has_selected_track ? $user_track : 'iniciante'; 
-$active_track_data = $tracks[$active_track_key];
+$active_track_data = $tracks[$active_track_key] ?? $tracks['iniciante'];
 
-// ==========================================================
-// FUNÇÃO PHP PARA SALVAR A TRILHA (Simulação de POST/AJAX)
-// ==========================================================
-
-// Simulamos que a função JavaScript faz um POST para esta página
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['selected_track'])) {
-    $new_track = filter_var($_POST['selected_track'], FILTER_SANITIZE_STRING);
-    
-    if (isset($tracks[$new_track])) {
-        $_SESSION['user_track'] = $new_track;
-        
-        // NOVO: Persistir a trilha ativa no banco de dados
-        include 'db.php';
-        $user_id = $_SESSION['user_id'];
-        
-        // Assumimos que você tem um campo 'trilha_ativa' na tabela 'dependentes'
-        $sql_update = "UPDATE dependentes SET trilha_ativa = ? WHERE id = ?"; 
-        $stmt_update = $conn->prepare($sql_update);
-        $stmt_update->bind_param("si", $new_track, $user_id);
-        $stmt_update->execute();
-        $stmt_update->close();
-        $conn->close();
-        
-        // Redireciona para evitar reenvio do formulário e recarrega a página com a trilha nova.
-        header("Location: trilhas.php");
-        exit;
+// Calcula o progresso geral da trilha ativa
+$total_licoes_trilha = 0;
+$licoes_concluidas_trilha = 0;
+foreach ($active_track_data['modules'] as $module) {
+    $total_licoes_trilha += count($module['lessons']);
+    foreach ($module['lessons'] as $lesson) {
+        if ($lesson['status'] === 'Concluído') {
+            $licoes_concluidas_trilha++;
+        }
     }
 }
+$progresso_percentual = $total_licoes_trilha > 0 ? round(($licoes_concluidas_trilha / $total_licoes_trilha) * 100) : 0;
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -240,15 +287,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['selected_track'])) {
                 
                 <div class="flex items-center justify-center md:justify-start gap-3">
                     <div class="w-full max-w-xs bg-gray-200 rounded-full h-2.5">
-                        <div class="bg-primary h-2.5 rounded-full" style="width: 45%"></div>
+                        <div class="bg-primary h-2.5 rounded-full transition-all duration-500" style="width: <?php echo $progresso_percentual; ?>%"></div>
                     </div>
-                    <span class="text-sm font-semibold text-primary">45% Concluído</span>
+                    <span class="text-sm font-semibold text-primary"><?php echo $progresso_percentual; ?>% Concluído</span>
                 </div>
               </div>
-              <a href="lesson_start.php?track=<?php echo $active_track_key; ?>" class="w-full md:w-auto bg-primary text-white hover:opacity-90 px-8 py-3 text-lg font-semibold rounded-lg shadow-lg transition-all duration-300 flex items-center justify-center gap-2">
+              <?php
+                // Encontra a primeira lição não concluída
+                $primeira_licao_pendente = null;
+                foreach ($active_track_data['modules'] as $module) {
+                    foreach ($module['lessons'] as $lesson) {
+                        if ($lesson['status'] === 'Pendente') {
+                            $primeira_licao_pendente = $lesson['id'];
+                            break 2; // Sai dos dois loops
+                        }
+                    }
+                }
+                
+                if ($primeira_licao_pendente):
+              ?>
+              <a href="<?php echo $active_track_key; ?>.php?licao_id=<?php echo $primeira_licao_pendente; ?>" class="w-full md:w-auto bg-primary text-white hover:opacity-90 px-8 py-3 text-lg font-semibold rounded-lg shadow-lg transition-all duration-300 flex items-center justify-center gap-2">
                 Continuar o Curso
                 <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
               </a>
+              <?php else: ?>
+              <div class="w-full md:w-auto bg-green-600 text-white px-8 py-3 text-lg font-semibold rounded-lg shadow-lg flex items-center justify-center gap-2">
+                ✅ Trilha Concluída!
+              </div>
+              <?php endif; ?>
           </div>
           
           <hr class="w-full border-gray-200 my-4">
@@ -272,7 +338,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['selected_track'])) {
                                         Concluído
                                     </span>
                                 <?php else: ?>
-                                    <a href="#" class="text-sm font-medium text-primary hover:underline">
+                                    <a href="<?php echo $active_track_key; ?>.php?licao_id=<?php echo $lesson['id']; ?>" class="text-sm font-medium text-primary hover:underline">
                                         Começar Lição
                                     </a>
                                 <?php endif; ?>

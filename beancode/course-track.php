@@ -7,7 +7,7 @@ include 'db.php';
 
 // Redireciona se o usuário não estiver logado
 if (!isset($_SESSION['user_id'])) {
-    header("Location: login.php");
+    header("Location: index.php");
     exit();
 }
 
@@ -59,29 +59,73 @@ if ($user_type === 'responsible' && isset($_GET['aluno_id'])) {
 }
 
 // =========================================================
-// BUSCA DE PROGRESSO
+// BUSCA DE PROGRESSO E MÓDULOS DINÂMICOS
 // =========================================================
 
-$progresso = [];
-// CORREÇÃO: Usando a tabela 'progresso_licoes' e a coluna 'aluno_id'
-$sql = "SELECT modulo_id, status FROM progresso_licoes WHERE aluno_id = ? AND curso_slug = ?";
+// Busca lições concluídas pelo aluno
+$sql = "SELECT licao_id FROM progresso_licoes WHERE aluno_id = ? AND concluida = 1";
 $stmt = $conn->prepare($sql);
-$stmt->bind_param("is", $user_id_to_view, $course_slug);
+$stmt->bind_param("i", $user_id_to_view);
 $stmt->execute();
 $result = $stmt->get_result();
 
+$licoes_concluidas = [];
 while ($row = $result->fetch_assoc()) {
-    $progresso[$row['modulo_id']] = $row['status'];
+    $licoes_concluidas[] = $row['licao_id'];
 }
 $stmt->close();
-$conn->close();
 
-// Definição estática dos módulos (idealmente viria de uma tabela 'modulos' do BD)
-$modulos = [
-    1 => ['titulo' => 'Primeiros Passos (Iniciante)', 'descricao' => 'Blocos, Sequências e Loops.', 'emoji' => '🌟', 'status_key' => 'iniciante'],
-    2 => ['titulo' => 'O Criador de Jogos (Intermediário)', 'descricao' => 'Variáveis, Condicionais (If/Else) e Colisões.', 'emoji' => '🎮', 'status_key' => 'intermediario'],
-    3 => ['titulo' => 'Mago da Web (Avançado)', 'descricao' => 'Introdução ao HTML e CSS.', 'emoji' => '🧙‍♂️', 'status_key' => 'avancado'],
+// Busca o curso baseado na trilha ativa
+$trilha_map = [
+    'iniciante' => 'Iniciante',
+    'intermediario' => 'Intermediário',
+    'avancado' => 'Avançado'
 ];
+
+$sql_curso = "SELECT id FROM cursos WHERE nome_curso LIKE ?";
+$stmt_curso = $conn->prepare($sql_curso);
+$search_term = '%' . ($trilha_map[$course_slug] ?? 'Iniciante') . '%';
+$stmt_curso->bind_param("s", $search_term);
+$stmt_curso->execute();
+$result_curso = $stmt_curso->get_result();
+
+$curso_id = null;
+if ($result_curso->num_rows > 0) {
+    $curso_row = $result_curso->fetch_assoc();
+    $curso_id = $curso_row['id'];
+}
+$stmt_curso->close();
+
+// Busca módulos do curso
+$modulos = [];
+if ($curso_id) {
+    $sql_modulos = "SELECT m.id, m.nome, m.descricao, m.ordem,
+                    (SELECT COUNT(*) FROM licoes WHERE modulo_id = m.id) as total_licoes,
+                    (SELECT COUNT(*) FROM licoes l 
+                     INNER JOIN progresso_licoes pl ON l.id = pl.licao_id 
+                     WHERE l.modulo_id = m.id AND pl.aluno_id = ? AND pl.concluida = 1) as licoes_concluidas
+                    FROM modulos m
+                    WHERE m.curso_id = ?
+                    ORDER BY m.ordem";
+    $stmt_modulos = $conn->prepare($sql_modulos);
+    $stmt_modulos->bind_param("ii", $user_id_to_view, $curso_id);
+    $stmt_modulos->execute();
+    $result_modulos = $stmt_modulos->get_result();
+    
+    while ($row = $result_modulos->fetch_assoc()) {
+        $modulos[$row['id']] = [
+            'titulo' => $row['nome'],
+            'descricao' => $row['descricao'],
+            'ordem' => $row['ordem'],
+            'total_licoes' => $row['total_licoes'],
+            'licoes_concluidas' => $row['licoes_concluidas'],
+            'status_key' => $course_slug
+        ];
+    }
+    $stmt_modulos->close();
+}
+
+close_db_connection();
 
 // Define as cores e título com base na trilha ATIVA do aluno
 $track_info = [
@@ -142,17 +186,24 @@ $current_track = $track_info[$course_slug] ?? $track_info['iniciante']; // Pega 
 
             <div class="space-y-6">
                 
-                <?php foreach ($modulos as $id => $modulo): 
-                    $status_key = $modulo['status_key'];
-                    // Assume que está pendente se não estiver no array $progresso
-                    $status = $progresso[$id] ?? 'pendente'; 
-                    
-                    $is_completed = ($status === 'concluido');
-                    $is_current = ($status === 'em_progresso');
+                <?php 
+                $ordem_atual = 1;
+                foreach ($modulos as $id => $modulo): 
+                    // Calcula o progresso do módulo
+                    $total = $modulo['total_licoes'];
+                    $concluidas = $modulo['licoes_concluidas'];
+                    $is_completed = ($total > 0 && $concluidas >= $total);
+                    $is_current = ($modulo['ordem'] == $ordem_atual);
+                    $is_locked = ($modulo['ordem'] > $ordem_atual);
 
                     // Define cores com base no status
                     $bg_color = $is_completed ? 'bg-primary' : ($is_current ? 'bg-secondary' : 'bg-gray-400');
                     $text_color = $is_completed ? 'text-primary' : ($is_current ? 'text-secondary' : 'text-gray-700');
+                    
+                    // Se completou, próximo módulo fica disponível
+                    if ($is_completed) {
+                        $ordem_atual++;
+                    }
                 ?>
                 <div class="flex items-start bg-white p-6 rounded-xl shadow-lg border border-gray-200 transition-all duration-300 hover:shadow-xl">
                     <div class="flex-shrink-0">
@@ -162,26 +213,35 @@ $current_track = $track_info[$course_slug] ?? $track_info['iniciante']; // Pega 
                             <?php elseif ($is_current): ?>
                                 <span class="text-white">...</span>
                             <?php else: ?>
-                                <span class="text-white"><?php echo $id; ?></span>
+                                <span class="text-white"><?php echo $modulo['ordem']; ?></span>
                             <?php endif; ?>
                         </div>
                     </div>
                     <div class="flex-grow pt-1 ml-4">
-                        <h3 class="text-xl font-bold <?php echo $text_color; ?>">Módulo <?php echo $id; ?>: <?php echo htmlspecialchars($modulo['titulo']); ?></h3>
-                        <p class="text-gray-600 mb-4"><?php echo htmlspecialchars($modulo['descricao']); ?></p>
+                        <h3 class="text-xl font-bold <?php echo $text_color; ?>"><?php echo htmlspecialchars($modulo['titulo']); ?></h3>
+                        <p class="text-gray-600 mb-2"><?php echo htmlspecialchars($modulo['descricao']); ?></p>
+                        
+                        <?php if ($total > 0): ?>
+                            <div class="text-sm text-gray-500 mb-3">
+                                Progresso: <?php echo $concluidas; ?>/<?php echo $total; ?> lições
+                                <div class="w-full bg-gray-200 rounded-full h-2 mt-1">
+                                    <div class="<?php echo $bg_color; ?> h-2 rounded-full" style="width: <?php echo $total > 0 ? ($concluidas / $total * 100) : 0; ?>%"></div>
+                                </div>
+                            </div>
+                        <?php endif; ?>
 
                         <?php if ($is_completed): ?>
                             <div class="text-sm text-primary font-semibold flex items-center gap-1">
                                 🎉 Completo!
                             </div>
                         <?php elseif ($is_current && !$monitoring_mode): ?>
-                            <a href="<?php echo $status_key; ?>.php" class="bg-secondary text-white hover:opacity-90 px-4 py-2 text-sm font-semibold rounded-lg transition-all duration-300 inline-block">
+                            <a href="<?php echo $modulo['status_key']; ?>.php" class="bg-secondary text-white hover:opacity-90 px-4 py-2 text-sm font-semibold rounded-lg transition-all duration-300 inline-block">
                                 Continuar Agora
                             </a>
                         <?php elseif ($is_current && $monitoring_mode): ?>
                             <span class="text-sm text-secondary font-semibold">Em Progresso</span>
-                        <?php else: ?>
-                            <span class="text-sm text-gray-500 font-semibold">Bloqueado</span>
+                        <?php elseif ($is_locked): ?>
+                            <span class="text-sm text-gray-500 font-semibold">🔒 Bloqueado</span>
                         <?php endif; ?>
                     </div>
                 </div>
